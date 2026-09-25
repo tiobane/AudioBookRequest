@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from aiohttp import ClientSession
@@ -112,7 +113,6 @@ async def create_request(
     )
 
     if quality_config.get_auto_download(session) and user.is_above(GroupEnum.trusted):
-        # start querying and downloading if auto download is enabled
         background_task.add_task(
             background_start_query,
             asin_or_uuid=asin_or_uuid,
@@ -162,6 +162,23 @@ async def delete_request(
     return Response(status_code=204)
 
 
+@router.delete("/{asin_or_uuid}/completed-lifecycle")
+async def delete_completed_lifecycle_requests(
+    asin_or_uuid: str,
+    updated_before: datetime,
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    session.execute(
+        delete(AudiobookRequest).where(
+            (col(AudiobookRequest.asin) == asin_or_uuid)
+            & (col(AudiobookRequest.updated_at) <= updated_before)
+        )
+    )
+    session.commit()
+    return Response(status_code=204)
+
+
 @router.patch("/{asin_or_uuid}/downloaded")
 async def mark_downloaded(
     asin_or_uuid: str,
@@ -182,6 +199,22 @@ async def mark_downloaded(
         )
         return Response(status_code=204)
     raise HTTPException(status_code=404, detail="Book not found")
+
+
+@router.delete("/{asin_or_uuid}/downloaded")
+async def reset_downloaded(
+    asin_or_uuid: str,
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    book = session.exec(select(Audiobook).where(Audiobook.asin == asin_or_uuid)).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    book.downloaded = False
+    session.add(book)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/manual", response_model=list[ManualBookRequest])
@@ -309,7 +342,6 @@ async def refresh_source(
     force_refresh: bool = False,
 ):
     _ = user
-    # causes the sources to be placed into cache once they're done
     await query_sources(
         asin_or_uuid=asin_or_uuid,
         session=session,
@@ -331,7 +363,7 @@ async def list_sources(
     try:
         prowlarr_config.raise_if_invalid(session)
     except ProwlarrMisconfigured:
-        raise HTTPException(status_code=400, detail="Prowlarr misconfigured")
+        raise HTTPException(status_code=400, detail="Prowlarr misconfigured") from None
 
     result = await query_sources(
         asin_or_uuid,
@@ -361,7 +393,7 @@ async def download_book(
             asin_or_uuid=asin_or_uuid,
         )
     except ProwlarrMisconfigured as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from None
     if not resp.ok:
         raise HTTPException(status_code=500, detail="Failed to start download")
 
