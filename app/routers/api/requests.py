@@ -113,6 +113,7 @@ async def create_request(
     )
 
     if quality_config.get_auto_download(session) and user.is_above(GroupEnum.trusted):
+        # start querying and downloading if auto download is enabled
         background_task.add_task(
             background_start_query,
             asin_or_uuid=asin_or_uuid,
@@ -342,6 +343,7 @@ async def refresh_source(
     force_refresh: bool = False,
 ):
     _ = user
+    # causes the sources to be placed into cache once they're done
     await query_sources(
         asin_or_uuid=asin_or_uuid,
         session=session,
@@ -363,7 +365,7 @@ async def list_sources(
     try:
         prowlarr_config.raise_if_invalid(session)
     except ProwlarrMisconfigured:
-        raise HTTPException(status_code=400, detail="Prowlarr misconfigured") from None
+        raise HTTPException(status_code=400, detail="Prowlarr misconfigured")
 
     result = await query_sources(
         asin_or_uuid,
@@ -393,7 +395,7 @@ async def download_book(
             asin_or_uuid=asin_or_uuid,
         )
     except ProwlarrMisconfigured as e:
-        raise HTTPException(status_code=500, detail=str(e)) from None
+        raise HTTPException(status_code=500, detail=str(e))
     if not resp.ok:
         raise HTTPException(status_code=500, detail="Failed to start download")
 
