@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from aiohttp import ClientSession
@@ -162,6 +163,23 @@ async def delete_request(
     return Response(status_code=204)
 
 
+@router.delete("/{asin_or_uuid}/completed-lifecycle")
+async def delete_completed_lifecycle_requests(
+    asin_or_uuid: str,
+    updated_before: datetime,
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    session.execute(
+        delete(AudiobookRequest).where(
+            (col(AudiobookRequest.asin) == asin_or_uuid)
+            & (col(AudiobookRequest.updated_at) <= updated_before)
+        )
+    )
+    session.commit()
+    return Response(status_code=204)
+
+
 @router.patch("/{asin_or_uuid}/downloaded")
 async def mark_downloaded(
     asin_or_uuid: str,
@@ -182,6 +200,22 @@ async def mark_downloaded(
         )
         return Response(status_code=204)
     raise HTTPException(status_code=404, detail="Book not found")
+
+
+@router.delete("/{asin_or_uuid}/downloaded")
+async def reset_downloaded(
+    asin_or_uuid: str,
+    session: Annotated[Session, Depends(get_session)],
+    _: Annotated[DetailedUser, Security(AnyAuth(GroupEnum.admin))],
+):
+    book = session.exec(select(Audiobook).where(Audiobook.asin == asin_or_uuid)).first()
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    book.downloaded = False
+    session.add(book)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/manual", response_model=list[ManualBookRequest])
